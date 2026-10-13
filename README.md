@@ -72,3 +72,7 @@ The [full manual](docs/MANUAL.md) covers every setting, parameter, report sectio
 The costs shown are estimates calculated from the `Prices` table in `Invoke-Claude-API-01.ps1`, which uses [Anthropic's published rates](https://platform.claude.com/docs/en/about-claude/pricing) as of October 2026. Update the table when prices change. Your actual charges are in the Claude Console.
 
 This project isn't affiliated with or endorsed by Anthropic.
+
+## Licence
+
+[GNU General Public License v3.0](LICENSE).
