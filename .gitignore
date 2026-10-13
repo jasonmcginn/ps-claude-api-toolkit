@@ -1,0 +1,13 @@
+# Secrets: never commit a KeePass database or key file
+*.kdbx
+*.keyx
+*.key
+
+# Logs written by Invoke-Claude-API-01.ps1 (they contain your user name,
+# computer name, paths and request history)
+Claude-Usage-API.csv
+Claude-Logs-API.txt
+*.old
+
+# Report exports
+*-export.csv
