@@ -57,7 +57,7 @@ The API key is read from one entry. Its Title and User name must match the setti
 | KeePass field | Must be | Setting |
 | --- | --- | --- |
 | Title | `Anthropic API` | `KeePassTitle` |
-| User name | `ND_Testing` (or your own; match the setting) | `KeePassUser` |
+| User name | `keepassUser` (or your own; match the setting) | `KeePassUser` |
 | Password | your API key (starts `sk-ant-`) | (none) |
 
 **First run**
@@ -136,6 +136,21 @@ else:
 ```
 
 Use `powershell.exe` instead of `pwsh` for Windows PowerShell 5.1.
+
+### Using the output
+
+Besides the returned object and the JSON, the reply can be picked up three more ways.
+
+- **A variable.** After every call, in script and function modes, the result is kept in `$ClaudeOutput` (set `OutputVariable` to change the name). Other scripts in the same PowerShell session read `$ClaudeOutput.Text`, `$ClaudeOutput.TotalTokens` and so on. Several prompts at once give an array.
+- **A file.** Set `OutputFile` and the reply is saved there after every call, replacing the previous one, for other apps to read. `OutputFileFormat = 'Text'` saves just the reply; `'Json'` saves the whole result. Works in every mode.
+- **Captured from script mode.** Set `ShowResponse = $false` and the script prints nothing about the reply; it returns the result instead:
+
+```powershell
+$R = .\Invoke-Claude-API-01.ps1 -Prompt "Hello"
+$R.Text
+```
+
+Add `ShowStatus = $false` to hide the progress lines too, leaving only the password prompt, warnings and errors.
 
 ### Parameters
 
@@ -216,7 +231,7 @@ On each run the script checks that the chosen version is valid, supported by thi
 | --- | --- | --- |
 | `KeePassFileName` | `root.kdbx` | Database file, inside `WorkingDir` |
 | `KeePassTitle` | `Anthropic API` | Title of the entry holding the key |
-| `KeePassUser` | `ND_Testing` | User name of the entry holding the key |
+| `KeePassUser` | `keepassUser` | User name of the entry holding the key |
 | `KeePassProfileName` | `KPProfile` | Temporary PoshKeePass profile; the process ID is added so parallel runs don't clash |
 
 ### API connection and request defaults
@@ -246,12 +261,24 @@ On each run the script checks that the chosen version is valid, supported by thi
 
 To add a model, copy a line and change its name and rates. A model with no entry still works, but its cost shows as unknown and counts as zero in reports. The name matches by prefix, so `claude-haiku-5-5` also covers dated names such as `claude-haiku-5-5-20260601`.
 
+### Output
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `OutputVariable` | `ClaudeOutput` | Global variable that holds the latest result after each call (script and function modes); an array for several prompts. `''` = off |
+| `OutputFile` | `''` (off) | File the reply is saved to after each call, replaced each time: a name in `WorkingDir` or a full path |
+| `OutputFileFormat` | `Text` | `Text` = the reply only; `Json` = the whole result (reply, tokens, cost, model...) |
+
+The file is UTF-8 without a byte-order mark, which most other apps expect.
+
 ### Script-mode display
 
 These only affect what's printed when you run the script yourself (`$true` = show).
 
 | Setting | Default | Shows |
 | --- | --- | --- |
+| `ShowResponse` | `$true` | The reply and its details. `$false` = nothing about the reply is printed; the result is returned instead, so `$R = .\Invoke-Claude-API-01.ps1` captures it |
+| `ShowStatus` | `$true` | Progress lines: working folder, TLS, KeePass, "Calling API". Prompts, warnings and errors always show |
 | `ShowModel` | `$true` | Model that answered |
 | `ShowInputTokens` | `$true` | Tokens sent |
 | `ShowOutputTokens` | `$true` | Tokens received |

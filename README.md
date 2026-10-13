@@ -21,6 +21,7 @@ $R.EstimatedCostUsd
 
 - **Key kept in KeePass.** The master password is asked for on every call, held only as a SecureString and discarded as soon as the vault opens. The key is never printed, logged or returned.
 - **Three ways to call it:** run it in a console, dot-source it and call `Invoke-Claude` from your own scripts, or run it with `-Json` from Python, C#, batch files and other programs.
+- **Output your way.** The latest reply is kept in `$ClaudeOutput`, can be saved to a file (text or JSON) for other apps, and screen output can be turned off so a caller captures the result: `$R = .\Invoke-Claude-API-01.ps1 -Prompt "..."`.
 - **Clear errors.** Each failure has a plain-English message and its own exit code: KeePass, TLS, HTTP 401 or 429, out of credits, timeouts and more.
 - **TLS checks.** Checks the TLS version you choose against your PowerShell and Windows, offers fixes, and tests a real connection before the key is used.
 - **Usage tracking.** One CSV row per call, with tokens, estimated cost, model, label and caller. Prompt and reply text are never recorded.
@@ -30,7 +31,7 @@ $R.EstimatedCostUsd
 ## Quick start
 
 1. Put the three scripts and your KeePass database (`root.kdbx`) in one folder.
-2. In KeePass, create an entry with Title `Anthropic API`, your chosen user name, and your API key in the Password field. Then set `KeePassTitle` and `KeePassUser` in the script's SETTINGS block to match.
+2. In KeePass, create an entry with Title `Anthropic API`, User name `keepassUser` and your API key in the Password field. Other names work too: set `KeePassTitle` and `KeePassUser` in the script's SETTINGS block to match.
 3. In PowerShell, run:
 
    ```powershell

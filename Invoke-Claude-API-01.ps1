@@ -51,6 +51,16 @@
   JSON adds ok = true, or on failure ok = false and an error object:
   reason, exitCode, message, details, httpStatus, requestId, logFile.
 
+ USING THE OUTPUT (see Output and display settings)
+  - $ClaudeOutput holds the latest result after every call, in script
+    and function modes: $ClaudeOutput.Text is the reply.
+  - OutputFile saves the reply (Text) or the whole result (Json) to a
+    file after every call, for other apps to read.
+  - ShowResponse = $false: script mode prints nothing about the reply
+    and returns the result instead:
+      $R = .\Invoke-Claude-API-01.ps1 -Prompt "Hello"; $R.Text
+  - ShowStatus = $false: hides progress lines in script mode.
+
  USAGE LOG
   Every API call, successful or failed, adds one row to
   Claude-Usage-API.csv in the working folder (see UsageLog settings):
@@ -165,7 +175,7 @@ $ClaudeConfig = [ordered]@{
     # ·· KeePass ··
     KeePassFileName     = 'root.kdbx'       # Database file, inside WorkingDir
     KeePassTitle        = 'Anthropic API'   # Entry title holding the API key
-    KeePassUser         = 'ND_Testing'      # Entry username holding the API key
+    KeePassUser         = 'keepassUser'     # Entry username holding the API key
     KeePassProfileName  = 'KPProfile'       # Temporary PoshKeePass profile name (process ID is added)
 
     # ·· Anthropic API: connection ··
@@ -180,7 +190,20 @@ $ClaudeConfig = [ordered]@{
     System              = ''                # Optional system prompt. '' = none
     DefaultPrompt       = 'Tell me a small paragraph explaining how this Anthropic API works.'
 
+    # ·· Output: where the reply goes ··
+    OutputVariable      = 'ClaudeOutput'    # After each call the result is also kept in $global:ClaudeOutput
+                                            # (script and function modes), for other scripts in the same
+                                            # PowerShell session. Several prompts at once = an array. '' = off
+    OutputFile          = ''                # Also save the reply to this file, replaced on each call, for other
+                                            # apps to read: a name in WorkingDir or a full path. '' = off
+    OutputFileFormat    = 'Text'            # 'Text' = the reply only; 'Json' = the reply plus tokens, cost, model...
+
     # ·· Script-mode display ($true = show, $false = hide) ··
+    ShowResponse        = $true             # The reply and its details. $false = nothing about the reply is
+                                            # printed; the result object is returned instead, so a caller can
+                                            # capture it:  $R = .\Invoke-Claude-API-01.ps1 -Prompt "..."
+    ShowStatus          = $true             # Progress lines (working folder, TLS, KeePass, "Calling API...").
+                                            # Prompts, warnings and errors always show.
     ShowModel           = $true             # Model that answered
     ShowInputTokens     = $true             # Tokens sent (your prompt)
     ShowOutputTokens    = $true             # Tokens received (the reply)
@@ -227,7 +250,11 @@ $ClaudeLib = {
     function Write-Status {
         param([string]$Text, [string]$Color = 'Gray', [switch]$Warning)
         switch ($script:OutputMode) {
-            'Console' { Write-Host $Text -ForegroundColor $(if ($Warning) { 'Yellow' } else { $Color }) }
+            'Console' {
+                # ShowStatus = $false hides progress lines; warnings and problems (red) still show
+                if (-not $Config.ShowStatus -and -not $Warning -and $Color -ne 'Red') { return }
+                Write-Host $Text -ForegroundColor $(if ($Warning) { 'Yellow' } else { $Color })
+            }
             'Json'    { [Console]::Error.WriteLine($(if ($Warning) { "Warning: $($Text.Trim())" } else { $Text })) }
             default   { if ($Warning) { Write-Warning $Text.Trim() } else { Write-Verbose $Text.Trim() } }
         }
@@ -623,7 +650,7 @@ $ClaudeLib = {
         }
 
         Write-Status "Authenticated. Vault unlocked: $($Config.KeePassFileName)" Green
-        if ($script:OutputMode -eq 'Console' -and $Config.AuthPauseSeconds -gt 0) {
+        if ($script:OutputMode -eq 'Console' -and $Config.ShowStatus -and $Config.AuthPauseSeconds -gt 0) {
             Start-Sleep -Seconds $Config.AuthPauseSeconds
         }
 
@@ -822,6 +849,42 @@ $ClaudeLib = {
         }
     }
 
+    # ·· Output variable and file ··
+
+    # Store the results where other scripts (variable) and other apps (file) can pick them up.
+    # Never throws: a problem here must not lose the reply the caller already has.
+    function Publish-ClaudeOutput {
+        param([object[]]$Results)
+        $Value = if ($Results.Count -eq 1) { $Results[0] } else { $Results }
+
+        $Name = "$($Config.OutputVariable)".Trim()
+        if ($Name -and $script:OutputMode -ne 'Json') {
+            if ($Name -match '^[A-Za-z_][A-Za-z0-9_]*$') {
+                Set-Variable -Name $Name -Value $Value -Scope Global -Force
+            } else {
+                Write-Status "OutputVariable '$Name' isn't a valid variable name (letters, digits and _ only), so it wasn't set." -Warning
+            }
+        }
+
+        $File = "$($Config.OutputFile)".Trim()
+        if ($File) {
+            try {
+                $Path = Get-LogPath $File
+                $Text = if ($Config.OutputFileFormat -eq 'Json') {
+                    if ($Results.Count -eq 1) { $Results[0] | ConvertTo-Json -Depth 6 }
+                    else { ConvertTo-Json -InputObject $Results -Depth 6 }
+                } else {
+                    ($Results | ForEach-Object { $_.Text }) -join ([Environment]::NewLine + [Environment]::NewLine)
+                }
+                # UTF-8 without a byte-order mark: what most other apps expect
+                [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding $false))
+                Write-Status "Reply saved to $Path" DarkGray
+            } catch {
+                Write-Status "Couldn't save the reply to OutputFile: $($_.Exception.Message)" -Warning
+            }
+        }
+    }
+
     # ·· Error log ··
 
     # Append one error to the log. Never throws: a logging problem must not hide the real error.
@@ -897,6 +960,7 @@ $ClaudeLib = {
         begin {
             # The script that called this function, for the error log
             $Caller = $MyInvocation.ScriptName
+            $Collected = New-Object Collections.Generic.List[object]   # Results, for the output variable / file
             try {
                 if ($MaxTokens -lt 1) { throw (New-ClaudeError Settings "MaxTokens must be 1 or more (got $MaxTokens).") }
                 if ($null -ne $Temperature -and ($Temperature -lt 0 -or $Temperature -gt 1)) {
@@ -967,7 +1031,7 @@ $ClaudeLib = {
                 Caller = $Caller
             }
 
-            [pscustomobject]@{
+            $Result = [pscustomobject]@{
                 PSTypeName       = 'Claude.Response'
                 Text             = ($Response.content | Where-Object { $_.type -eq 'text' } |
                                     ForEach-Object { $_.text }) -join "`n"
@@ -989,6 +1053,8 @@ $ClaudeLib = {
                 Timestamp        = (Get-Date).ToUniversalTime().ToString('o')
                 Usage            = $U
             }
+            $Collected.Add($Result)
+            $Result
           } catch {
             $Headers = $null
             Write-ClaudeErrorLog -ErrorRecord $_ -Model $Model -Caller $Caller
@@ -998,6 +1064,8 @@ $ClaudeLib = {
         end {
             # Drop the key at the end of the call
             $Headers = $null
+            # Hand the results to the output variable and file, if set
+            if ($Collected.Count) { Publish-ClaudeOutput $Collected.ToArray() }
         }
     }
 
@@ -1034,7 +1102,7 @@ if ($ClaudeMode -eq 'Json') {
     $ProgressPreference = 'SilentlyContinue'
     $WarningPreference  = 'SilentlyContinue'
     try { [Console]::OutputEncoding = New-Object Text.UTF8Encoding $false } catch {}
-} else {
+} elseif ($ClaudeConfig.ShowStatus) {
     $Source = if ($PSScriptRoot) { 'script folder' } else { 'current folder, because this is not running from a saved .ps1 file' }
     if ($PSScriptRoot -and $ClaudeConfig.WorkingDir -ne $PSScriptRoot) { $Source = 'set in SETTINGS' }
     Write-Host "`nWorking folder: $($ClaudeConfig.WorkingDir)" -ForegroundColor DarkGray
@@ -1126,6 +1194,9 @@ if ($ErrInfo) {
     Write-Host $ErrInfo.message -ForegroundColor Red
     foreach ($Line in $ErrInfo.details) { Write-Host "  $Line" -ForegroundColor DarkGray }
     if ($ErrInfo.logFile) { Write-Host "  Logged to  : $($ErrInfo.logFile)" -ForegroundColor DarkGray }
+} elseif (-not $C.ShowResponse) {
+    # The caller manages the output: hand back the result object instead of printing it
+    $Result
 } else {
     Write-Host "`n── Response ──────────────────────────────────────────" -ForegroundColor Yellow
     Write-Host $Result.Text
@@ -1149,5 +1220,7 @@ if ($ErrInfo) {
         Write-Host "Note: the reply was cut off at the max tokens limit ($Max)." -ForegroundColor Yellow
     }
 }
-if ($C.ShowExitCode) { Write-Host "`nExit code: $ExitCode ($Reason)" -ForegroundColor DarkGray }
+if ($C.ShowExitCode -and ($C.ShowResponse -or $ErrInfo)) {
+    Write-Host "`nExit code: $ExitCode ($Reason)" -ForegroundColor DarkGray
+}
 exit $ExitCode
